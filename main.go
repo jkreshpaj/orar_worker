@@ -1,11 +1,11 @@
-package amqper
+package amqpworker
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"reflect"
 	"time"
+	"strings"
 
 	"github.com/streadway/amqp"
 )
@@ -23,10 +23,11 @@ type Appointment struct {
 
 //Worker type contains worker properties
 type Worker struct {
-	Key      string
-	Cmd      func()
-	Time     int
-	Finished chan bool
+	Key	string
+	Message	Appointment
+	Cmd	func()
+	Time	int
+	Data	chan interface{}
 }
 
 //Run start worker job in new routine
@@ -34,7 +35,7 @@ func (w *Worker) Run() {
 	go func() {
 		time.Sleep(time.Duration(w.Time) * time.Minute)
 		w.Cmd()
-		w.Finished <- true
+		w.Data <- w.Message
 	}()
 }
 
@@ -63,7 +64,7 @@ func CreateConnection(URI string) (*Connection, error) {
 }
 
 //ConsumeQueue consumes a queue and
-func ConsumeQueue(name string, connection *Connection) {
+func ConsumeQueue(name string, connection *Connection, queueCmd func(), data chan interface{}) {
 	log.Println("{CONSUMING QUEUE}:", name)
 	messages, _ := connection.Channel.Consume(
 		name,
@@ -77,11 +78,8 @@ func ConsumeQueue(name string, connection *Connection) {
 	forever := make(chan bool)
 	go func() {
 		for message := range messages {
-			decoded := decodeMessage(name, message)
-			finished := make(chan bool)
-			worker := NewWorker(decoded.Key, decoded.Time, func() {
-				fmt.Println("Worker executed.")
-			}, finished)
+			decoded := decodeMessage(strings.Split(name, ".")[0], message)
+			worker := NewWorker(decoded, queueCmd, data)
 			worker.Run()
 			message.Ack(false)
 		}
@@ -90,12 +88,13 @@ func ConsumeQueue(name string, connection *Connection) {
 }
 
 //NewWorker creates new instance of worker
-func NewWorker(key string, t int, cmd func(), done chan bool) Worker {
+func NewWorker(message Appointment, cmd func(), data chan interface{}) Worker {
 	w := Worker{
-		Key:      key,
-		Time:     t,
-		Cmd:      cmd,
-		Finished: done,
+		Key:		message.Key,
+		Time:		message.Time,
+		Message:	message,
+		Cmd:		cmd,
+		Data:		data,
 	}
 	return w
 }
