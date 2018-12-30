@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"reflect"
-	"time"
 	"strings"
+	"time"
 
 	"github.com/streadway/amqp"
 )
@@ -23,19 +23,22 @@ type Appointment struct {
 
 //Worker type contains worker properties
 type Worker struct {
-	Key	string
-	Message	Appointment
-	Cmd	func()
-	Time	int
-	Data	chan interface{}
+	Key     string
+	Message Appointment
+	Cmd     func()
+	Time    int
+	Data    chan interface{}
 }
 
 //Run start worker job in new routine
 func (w *Worker) Run() {
 	go func() {
+		log.Println("\u001b[32;1m [worker started] \u001b[0m", w.Key)
 		time.Sleep(time.Duration(w.Time) * time.Minute)
+		go func() {
+			w.Data <- w.Message
+		}()
 		w.Cmd()
-		w.Data <- w.Message
 	}()
 }
 
@@ -54,18 +57,29 @@ func CreateConnection(URI string) (*Connection, error) {
 		return nil, err
 	}
 	conn.Connection = amqpConn
+	log.Println("\u001b[32;1m [amqp connected] \u001b[0m", URI)
 	amqpChan, err := conn.Connection.Channel()
 	if err != nil {
 		return nil, err
 	}
 	conn.Channel = amqpChan
-
+	_, err = amqpChan.QueueDeclare(
+		"appointment.cron",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Println("Error creating queue")
+	}
 	return conn, nil
 }
 
 //ConsumeQueue consumes a queue and
 func ConsumeQueue(name string, connection *Connection, queueCmd func(), data chan interface{}) {
-	log.Println("{CONSUMING QUEUE}:", name)
+	log.Println("\u001b[32;1m [consuming] \u001b[0m", name)
 	messages, _ := connection.Channel.Consume(
 		name,
 		"",
@@ -87,15 +101,36 @@ func ConsumeQueue(name string, connection *Connection, queueCmd func(), data cha
 	<-forever
 }
 
-//NewWorker creates new instance of worker
-func NewWorker(message Appointment, cmd func(), data chan interface{}) Worker {
-	w := Worker{
-		Key:		message.Key,
-		Time:		message.Time,
-		Message:	message,
-		Cmd:		cmd,
-		Data:		data,
+func PublishToQueue(name string, connection *Connection, data interface{}) {
+	log.Println("\u001b[32;1m [publishing] \u001b[0m", name)
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		log.Fatal("Error marshalin json")
 	}
+
+	err = connection.Channel.Publish(
+		"",
+		name,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        bytes,
+		},
+	)
+	if err != nil {
+		log.Fatal("Error publishig to queue")
+	}
+}
+
+//NewWorker creates new instance of worker
+func NewWorker(message Appointment, cmd func(), data chan interface{}) *Worker {
+	w := new(Worker)
+	w.Key = message.Key
+	w.Time = message.Time
+	w.Message = message
+	w.Cmd = cmd
+	w.Data = data
 	return w
 }
 
