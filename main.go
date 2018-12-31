@@ -14,11 +14,12 @@ var typeRegistry = make(map[string]reflect.Type)
 
 //Appointment message type from appointment queue
 type Appointment struct {
-	Key    string `json:"key"`
-	Time   int    `json:"time"`
-	Status string `json:"status"`
-	For    string `json:"for"`
-	UserID string `json:"userId"`
+	Key        string `json:"key"`
+	Time       int    `json:"time"`
+	Status     string `json:"status"`
+	For        string `json:"for"`
+	UserID     string `json:"userId"`
+	ProviderID string `json:"providerId"`
 }
 
 //Worker type contains worker properties
